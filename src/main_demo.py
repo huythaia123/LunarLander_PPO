@@ -10,7 +10,9 @@ def demo():
     action_dim = env.action_space.n
     agent = PPO(state_dim, action_dim)
 
-    load_model(agent, "ppo_lunarlander_best.pth")
+    test_load_model = load_model(agent, "ppo_lunarlander_best.pth")
+    if not test_load_model:
+        load_model(agent, "ppo_lunarlander.pth")
 
     for ep in range(5):
         state, _ = env.reset()

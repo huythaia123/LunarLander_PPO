@@ -12,5 +12,7 @@ def load_model(agent, filename="ppo_lunarlander.pth"):
         agent.policy.load_state_dict(torch.load(filename))
         agent.policy_old.load_state_dict(agent.policy.state_dict())
         print(f"[OK] Model loaded from {filename}")
+        return True
     else:
-        print("[ERROR] No model found to load.")
+        print(f"[ERROR] No model found to load {filename}.")
+        return False
