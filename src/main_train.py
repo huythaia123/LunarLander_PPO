@@ -1,80 +1,125 @@
+# main_train.py
+import os
+import time
 import gymnasium as gym
+import numpy as np
 import matplotlib.pyplot as plt
 from ppo_agent import PPO
-from utils import save_model
+from utils import save_model, load_model
 
 
-def train_ppo():
-    env = gym.make("LunarLander-v3")
+def train_ppo(
+    env_id="LunarLander-v3",
+    save_dir=".",
+    seed=42,
+    max_episodes=4000,
+    max_timesteps=1000,
+    update_timestep=4000,
+    resume=False,
+):
+    env = gym.make(env_id)
+    env.reset(seed=seed)
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.n
 
-    agent = PPO(state_dim, action_dim)
-    max_episodes = 2000
-    max_timesteps = 1500
-    update_timestep = 4000
+    agent = PPO(
+        state_dim,
+        action_dim,
+        lr_actor=3e-4,
+        lr_critic=1e-3,
+        gamma=0.99,
+        K_epochs=10,  # N_e as in pseudocode
+        eps_clip=0.2,
+        entropy_coef=0.01,
+        vf_coef=0.5,
+        batch_size=64,
+    )
+
+    last_checkpoint = os.path.join(save_dir, "ppo_lunarlander.pth")
+    best_checkpoint = os.path.join(save_dir, "ppo_lunarlander_best.pth")
+
+    if resume and os.path.exists(last_checkpoint):
+        print("[INFO] Resuming from last checkpoint...")
+        agent.load(last_checkpoint)
+
     timestep = 0
+    running_reward = 0.0
+    reward_history = []
+    best_avg = -1e9
+    recent_rewards = []
 
-    running_reward = 0
-    avg_length = 0
-    reward_history = []  # lưu reward trung bình 50 episode gần nhất
-
+    start = time.time()
     for ep in range(1, max_episodes + 1):
         state, _ = env.reset()
-        ep_reward = 0
+        ep_reward = 0.0
 
         for t in range(max_timesteps):
             timestep += 1
-            action = agent.select_action(state)
-            state, reward, done, trunc, _ = env.step(action)
+            # sample from behavior policy π_beta (policy_old)
+            action = agent.select_action(state, deterministic=False)
 
+            next_state, reward, terminated, truncated, _ = env.step(action)
+            done = terminated or truncated
+
+            # store immediate reward and terminal flag (following pseudocode)
             agent.buffer.rewards.append(reward)
-            agent.buffer.is_terminals.append(done or trunc)
+            agent.buffer.is_terminals.append(done)
+
             ep_reward += reward
+            state = next_state
 
-            if done or trunc:
-                break
-
-            # cập nhật PPO sau mỗi update_timestep bước
+            # If enough timesteps collected, update
             if timestep % update_timestep == 0:
                 agent.update()
                 timestep = 0
 
+            if done:
+                break
+
+        recent_rewards.append(ep_reward)
         running_reward += ep_reward
-        avg_length += t
 
-        # lưu reward trung bình mỗi 50 episode
+        # logging and saving average every 50 episodes
         if ep % 50 == 0:
-            avg_reward = running_reward / 50
-            reward_history.append(avg_reward)
-            print(f"Episode {ep}\tAverage Reward: {avg_reward:.2f}")
-            running_reward = 0
-            avg_length = 0
+            avg50 = sum(recent_rewards[-50:]) / 50.0
+            reward_history.append(avg50)
+            print(f"[EP {ep}] Avg50: {avg50:.2f} | EpReward: {ep_reward:.2f}")
+            if avg50 > best_avg:
+                best_avg = avg50
+                save_model(agent, best_checkpoint)
+                print(f"\t- New best avg50 {best_avg:.2f} saved.")
+            # save periodic checkpoint
+            save_model(agent, last_checkpoint)
 
-        # Lưu mô hình tốt nhất khi reward cao
-        if ep_reward > 250:
-            save_model(agent, "ppo_lunarlander_best.pth")
-            print(f"🎉 Saved best model at episode {ep} with reward {ep_reward:.2f}")
+        # save exceptionally good single episodes
+        if ep_reward >= 250.0:
+            save_model(agent, best_checkpoint)
+            print(f"\t- Exceptional episode saved (ep {ep}, reward {ep_reward:.2f})")
 
+    # final saves & plotting
+    save_model(agent, last_checkpoint)
     env.close()
-    save_model(agent)
 
-    # ----- Vẽ đồ thị reward -----
-    plt.figure(figsize=(10, 5))
-    plt.plot(
-        [i * 50 for i in range(1, len(reward_history) + 1)],
-        reward_history,
-        marker="o",
-        color="blue",
+    # plot training curve
+    if reward_history:
+        xs = [i * 50 for i in range(1, len(reward_history) + 1)]
+        plt.figure(figsize=(10, 5))
+        plt.plot(xs, reward_history, marker="o")
+        plt.title("PPO Training Curve (avg per 50 episodes)")
+        plt.xlabel("Episode")
+        plt.ylabel("Average Reward")
+        plt.grid(True)
+        plot_path = os.path.join(save_dir, "ppo_training_curve.png")
+        plt.savefig(plot_path)
+        # plt.show()
+        print(f"[OK] Training curve saved: {plot_path}")
+
+    print(f"[DONE] Training finished. Time elapsed {time.time() - start:.1f}s")
+    print(
+        f"Best avg50: {best_avg:.2f} (file: {best_checkpoint if os.path.exists(best_checkpoint) else last_checkpoint})"
     )
-    plt.title("PPO Training Progress on LunarLander-v3")
-    plt.xlabel("Episode")
-    plt.ylabel("Average Reward (per 50 episodes)")
-    plt.grid(True)
-    plt.savefig("ppo_training_curve.png")
-    plt.show()
-    print("📈 Training curve saved as ppo_training_curve.png")
 
 
 if __name__ == "__main__":
-    train_ppo()
+    # set resume=True to continue from last checkpoint if exists
+    train_ppo(resume=True, max_episodes=3000)

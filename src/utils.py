@@ -1,18 +1,17 @@
-import torch
-import os
+# utils.py
+
+pre_path = "models/"
 
 
-def save_model(agent, filename="ppo_lunarlander.pth"):
-    torch.save(agent.policy.state_dict(), filename)
-    print(f"[OK] Model saved to {filename}")
+def save_model(agent, path="ppo_lunarlander.pth"):
+    agent.save(pre_path + path)
+    print(f"[OK] Model saved: {pre_path + path}")
 
 
-def load_model(agent, filename="ppo_lunarlander.pth"):
-    if os.path.exists(filename):
-        agent.policy.load_state_dict(torch.load(filename))
-        agent.policy_old.load_state_dict(agent.policy.state_dict())
-        print(f"[OK] Model loaded from {filename}")
+def load_model(agent, path="ppo_lunarlander.pth"):
+    if agent.load(pre_path + path):
+        print(f"[OK] Model loaded: {pre_path + path}")
         return True
     else:
-        print(f"[ERROR] No model found to load {filename}.")
+        print(f"[ERROR] No model found at: {pre_path + path}")
         return False
