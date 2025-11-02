@@ -2,10 +2,9 @@
 import os
 import time
 import gymnasium as gym
-import numpy as np
 import matplotlib.pyplot as plt
 from ppo_agent import PPO
-from utils import save_model, load_model
+from utils import save_model
 
 
 def train_ppo(
