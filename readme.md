@@ -9,5 +9,6 @@
 ## Export lib version to requirements.txt
 
 ```bash
+python -m venv .venv
 pip freeze > requirements.txt
 ```
