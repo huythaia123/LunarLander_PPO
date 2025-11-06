@@ -14,6 +14,7 @@ class ActorCritic(nn.Module):
         super().__init__()
         actor_layers = []
         in_dim = state_dim
+        # Actor tạo phân phối xác xuất, dùng để sample action
         for h in hidden_sizes:
             actor_layers += [nn.Linear(in_dim, h), nn.ReLU()]
             in_dim = h
@@ -25,6 +26,7 @@ class ActorCritic(nn.Module):
         for h in hidden_sizes:
             critic_layers += [nn.Linear(in_dim, h), nn.ReLU()]
             in_dim = h
+        # Critic ước lượng giá trị trạng thái V(s)
         critic_layers += [nn.Linear(in_dim, 1)]
         self.critic = nn.Sequential(*critic_layers)
 
@@ -56,6 +58,7 @@ class ActorCritic(nn.Module):
         actions: tensor (N,)
         returns: log_probs (N,), state_values (N,), dist_entropy (N,)
         """
+        # chọn hành động từ Actor-Critic
         probs = self.actor(states)
         dist = Categorical(probs)
         log_probs = dist.log_prob(actions)
@@ -72,13 +75,13 @@ class PPO:
         lr_actor=3e-4,
         lr_critic=1e-3,
         gamma=0.99,
-        K_epochs=4,  # N_e in pseudocode
+        K_epochs=4,
         eps_clip=0.2,
         entropy_coef=0.01,
         vf_coef=0.5,
         batch_size=None,
     ):
-        self.buffer = RolloutBuffer()
+        self.buffer = RolloutBuffer()  # Lưu state, action, reward, value, log_prob …
         self.gamma = gamma
         self.K_epochs = K_epochs
         self.eps_clip = eps_clip
@@ -89,9 +92,10 @@ class PPO:
         self.policy_old = ActorCritic(state_dim, action_dim).to(device)
         self.policy_old.load_state_dict(self.policy.state_dict())
 
-        # separate learning rates for actor & critic inside same optimizer
+        # tỷ lệ học tập riêng biệt cho actor và critic trong cùng một trình tối ưu hóa
         self.optimizer = torch.optim.Adam(
             [
+                # actor và critic có tốc độ học khác nhau thực tế critic học nhanh hơn
                 {"params": self.policy.actor.parameters(), "lr": lr_actor},
                 {"params": self.policy.critic.parameters(), "lr": lr_critic},
             ]
@@ -101,6 +105,7 @@ class PPO:
         self.batch_size = batch_size  # if None, use full-batch updates
 
     def select_action(self, state, deterministic=False):
+        # chọn hành động training
         # sample under policy_old (the behavior policy π_β)
         action, log_prob, value = self.policy_old.get_action_and_value(
             state, deterministic=deterministic
@@ -110,6 +115,7 @@ class PPO:
         self.buffer.log_probs.append(log_prob)  # tensor scalar
         # store V(s) computed under policy_old critic
         self.buffer.values.append(float(value.cpu().numpy()))
+        # Dữ liệu lưu theo π_old, đúng theo PPO
         return action
 
     def compute_advantages(self):
@@ -123,6 +129,7 @@ class PPO:
             y_t = r_t + gamma * V(s_{t+1})
         Return advantages (tensor) and targets y (tensor) aligned with buffer length.
         """
+        # Tính Advantage 1-step TD
         rewards = self.buffer.rewards
         is_terminals = self.buffer.is_terminals
         values = self.buffer.values
@@ -188,6 +195,8 @@ class PPO:
                 )
 
                 # importance sampling ratio ρ = π(a|s;φ) / π_beta(a|s) = exp(logπ - logπ_beta)
+                # Nếu ratio thay đổi quá nhiều → Không cho update mạnh
+                # Tránh phá hỏng policy đã tốt
                 ratios = torch.exp(logprobs - mb_old_logprobs.detach())
 
                 # surrogate (clipped)
@@ -198,8 +207,10 @@ class PPO:
                 )
                 actor_loss = -torch.min(surr1, surr2).mean()
 
+                # Giúp Critic dự đoán giá trị tốt hơn
                 critic_loss = self.MSE(state_values, mb_targets)
 
+                # Giữ cho policy đa dạng, tránh bị greedy quá sớm
                 entropy_loss = dist_entropy.mean()
 
                 loss = (
