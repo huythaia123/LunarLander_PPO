@@ -25,7 +25,7 @@ Windows
 Linux
 
 ```bash
-source .venv/Scripts/activate
+source .venv/bin/activate
 ```
 
 **3**
